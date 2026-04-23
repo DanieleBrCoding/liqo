@@ -6,6 +6,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/klog/v2"
+	"k8s.io/klog/v2/klogr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
@@ -13,14 +14,15 @@ import (
 )
 
 func main() {
-	
+	ctrl.SetLogger(klogr.New())
+
 	scheme := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(scheme)
 
 	//Creazione Manager
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:  scheme,
-		Metrics: server.Options{BindAddress: "0"}, 
+		Metrics: server.Options{BindAddress: "0"},
 	})
 	if err != nil {
 		klog.Errorf("Unable to start manager: %v", err)
