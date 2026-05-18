@@ -17,6 +17,7 @@ package directconnection
 
 import (
 	corev1 "k8s.io/api/core/v1"
+	consts "github.com/liqotech/liqo/pkg/consts"
 )
 
 // ShouldIncludeDataFromNode returns whether to include the direct connection data
@@ -36,11 +37,11 @@ func ShouldIncludeDataFromNode(node *corev1.Node, remoteClusterID string) bool {
 		return false
 	}
 
-	if node.Labels["liqo.io/type"] != "virtual-node" {
+	if node.Labels[consts.TypeLabel] != consts.TypeNode {
 		return false
 	}
 
-	if node.Labels["liqo.io/remote-cluster-id"] == remoteClusterID {
+	if node.Labels[consts.RemoteClusterID] == remoteClusterID {
 		return false
 	}
 
