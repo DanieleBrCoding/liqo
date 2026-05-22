@@ -246,6 +246,12 @@ func (ner *NamespacedEndpointSliceReflector) Handle(ctx context.Context, name st
 
 		var remoteConnectionsData directconnectioninfo.DirectConnectionData
 
+		// dataCollectionErr tracks any transient error encountered while iterating over endpoints.
+		// If set, the reconciliation must be retried to avoid writing the ShadowEndpointSlice with
+		// original (un-remapped) IPs and no DirectConnectionData annotation, which the
+		// shadowendpointslice-controller cannot self-correct (no error path, no re-queue).
+		var dataCollectionErr error
+
 		for _, endpoint := range local.Endpoints {
 			if endpoint.NodeName == nil {
 				continue
@@ -257,6 +263,7 @@ func (ner *NamespacedEndpointSliceReflector) Handle(ctx context.Context, name st
 			node, err := ner.localNodeClient.Get(*endpoint.NodeName)
 			if err != nil {
 				klog.Errorf("Failed getting the node %q: %v", *endpoint.NodeName, err)
+				dataCollectionErr = fmt.Errorf("failed getting node %q: %w", *endpoint.NodeName, err)
 				continue
 			}
 
@@ -268,14 +275,24 @@ func (ner *NamespacedEndpointSliceReflector) Handle(ctx context.Context, name st
 			clusterID, err := getters.RetrieveRemoteClusterIDFromNode(node)
 			if err != nil {
 				klog.Errorf("Failed to retrieve remote cluster ID from node %q: %v", *endpoint.NodeName, err)
+				dataCollectionErr = fmt.Errorf("failed to retrieve cluster ID from node %q: %w", *endpoint.NodeName, err)
 				continue
 			}
 
 			IPs := endpoint.Addresses
 			remoteConnectionsData.Add(clusterID, IPs...)
 		}
+
+		// If any error occurred during collection, fall back to regular IPAM-remapped propagation.
+		// Direct connection data collection will be retried at the next reconciliation loop.
+		if dataCollectionErr != nil {
+			klog.Warningf("Direct connection data collection incomplete for EndpointSlice %q, falling back to regular propagation: %v", ner.LocalRef(name), dataCollectionErr)
+			ner.Event(local, corev1.EventTypeWarning, forge.EventFailedReflection, forge.EventFailedReflectionMsg(dataCollectionErr))
+			shouldProvideDirectConnectionData = false
+		}
+
 		if len(remoteConnectionsData.ByCluster) == 0 {
-			klog.Errorf("Service is set for direct connections but no data found for this endpointslice: %s", local.Name)
+			klog.V(4).Infof("No cross-provider endpoints found for EndpointSlice %q with direct connections enabled (all endpoints are local)", ner.LocalRef(name))
 		} else {
 			var err error
 

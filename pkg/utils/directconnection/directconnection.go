@@ -13,6 +13,7 @@
 // limitations under the License.
 
 // package directconnection manages data related to endpoints that can leverage a direct connection.
+// 
 package directconnection
 
 import (

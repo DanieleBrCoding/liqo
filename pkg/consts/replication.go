@@ -107,4 +107,10 @@ const (
 	// request that both a direct EndpointSlice (with provider-reachable IPs) and an indirect EndpointSlice
 	// (with IPAM-remapped IPs, not in use by the Service) are reflected to each provider cluster.
 	UseDirectConnectionAnnotationKey = "liqo.io/use-direct-connections"
+
+	// DirectConnectionFailoverAnnotation is the annotation key set on an EndpointSlice by the connection
+	// failover controller when the direct provider-to-provider Connection is down. While this annotation is
+	// present the ShadowEndpointSlice controller skips reconciliation for that EPS, preserving the
+	// hub-and-spoke (indirect) addresses that the failover controller has patched in.
+	DirectConnectionFailoverAnnotation = "liqo.io/direct-connection-failover"
 )
