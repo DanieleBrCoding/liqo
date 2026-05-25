@@ -239,8 +239,7 @@ func (ner *NamespacedEndpointSliceReflector) Handle(ctx context.Context, name st
 
 	var marshaledData []byte
 	if shouldProvideDirectConnectionData {
-		// If the Service associated to the local Endpointslice is annotated with consts.UseDirectConnectionAnnotationKey,
-		// then gather and marshal the data needed to make the providers use the direct connections between them.
+		// Gather the data needed to make the providers use the direct connections beteen them.
 		// 1) The address that needs to be remapped.
 		// 2) ClusterID of the cluster on which that endpoint is running.
 
@@ -292,13 +291,17 @@ func (ner *NamespacedEndpointSliceReflector) Handle(ctx context.Context, name st
 		}
 
 		if len(remoteConnectionsData.ByCluster) == 0 {
-			klog.V(4).Infof("No cross-provider endpoints found for EndpointSlice %q with direct connections enabled (all endpoints are local)", ner.LocalRef(name))
+			klog.V(4).Infof("Service is set for direct connections but no data found for this endpointslice: %s", local.Name)
 		} else {
 			var err error
 
 			marshaledData, err = remoteConnectionsData.ToJSON()
 			if err != nil {
 				klog.Errorf("Failed to marshal direct connection data: %v", err)
+				marshaledData = nil
+				// We do not return the error, since this is not a critical failure, as the reflection can proceed without the direct connection data.
+				// In this way, we avoid to break the reflection of endpointslices with direct connections enabled, but with no cross-provider endpoints (e.g., because all endpoints are local).
+				// If the data cannot be marshaled, then it is equivalent to not having any data at all, hence we can proceed with the reflection anyway.
 			} else {
 				klog.V(4).Infof("marshaled direct connection data: %s", string(marshaledData))
 			}
@@ -307,7 +310,7 @@ func (ner *NamespacedEndpointSliceReflector) Handle(ctx context.Context, name st
 				// Max size of data in annotations is 256KB
 				klog.Errorf("marshaled direct connection data exceeds maximum size of %d bytes: %d bytes", maxAnnotationSize, len(marshaledData))
 				marshaledData = nil
-			} else {
+			} else if marshaledData != nil {
 				klog.V(4).Infof("Direct connection data for endpointslice %q marshaled successfully", local.Name)
 			}
 		}
@@ -412,7 +415,7 @@ func (ner *NamespacedEndpointSliceReflector) MapEndpointIPFromIPResource(origina
 
 // MapEndpointIPs maps the local set of addresses to the corresponding remote ones.
 //
-// skipTranslation parameter is needed when direct connections are enabled, since in that case 
+// skipTranslation parameter is needed when direct connections are enabled: in that case 
 // we want to skip the mapping on ExternalCIDR for endpoints that are reachable through direct connections between providers.
 func (ner *NamespacedEndpointSliceReflector) MapEndpointIPs(endpointslice string, originals []string, skipTranslation bool) ([]string, error) {
 	

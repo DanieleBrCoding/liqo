@@ -110,8 +110,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			klog.Errorf("failed to unmarshal direct connection data for shadowendpointslice %q: %v", nsName, err)
 			return ctrl.Result{}, err
 		}
-		// JSON is not propagated to the EndpointSlice
-		delete(shadowEps.Annotations, consts.DirectConnectionDataAnnotationKey)
 	}
 	// Get the endpoints from the shadowendpointslice and remap them if necessary.
 	// If the networking module is disabled, we do not need to remap the endpoints.
