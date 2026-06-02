@@ -1,4 +1,4 @@
-// Copyright 2019-2025 The Liqo Authors
+// Copyright 2019-2026 The Liqo Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -149,6 +149,8 @@ func (r *ForeignClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		updateNeeded = false
 		return res, err
 	}
+
+	foreignCluster.Status.ObservedGeneration = foreignCluster.Generation
 
 	klog.V(4).Infof("ForeignCluster %s successfully reconciled", foreignCluster.Name)
 

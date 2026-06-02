@@ -1,4 +1,4 @@
-// Copyright 2019-2025 The Liqo Authors
+// Copyright 2019-2026 The Liqo Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -46,6 +46,11 @@ const (
 
 // ForeignClusterStatus defines the observed state of ForeignCluster.
 type ForeignClusterStatus struct {
+	// ObservedGeneration is the most recent generation observed by the controller.
+	// Zero means the controller has never reconciled this resource.
+	// +kubebuilder:validation:Optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
 	// Role of the ForeignCluster.
 	// +kubebuilder:validation:Enum="Consumer";"Provider";"ConsumerAndProvider";"Unknown"
 	// +kubebuilder:default="Unknown"

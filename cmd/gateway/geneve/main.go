@@ -1,4 +1,4 @@
-// Copyright 2019-2025 The Liqo Authors
+// Copyright 2019-2026 The Liqo Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -31,10 +31,8 @@ import (
 
 	networkingv1beta1 "github.com/liqotech/liqo/apis/networking/v1beta1"
 	"github.com/liqotech/liqo/pkg/gateway"
-	"github.com/liqotech/liqo/pkg/gateway/cleanup"
 	"github.com/liqotech/liqo/pkg/gateway/concurrent"
-	"github.com/liqotech/liqo/pkg/gateway/fabric"
-	"github.com/liqotech/liqo/pkg/gateway/fabric/geneve"
+	gwfabric "github.com/liqotech/liqo/pkg/gateway/fabric"
 	flagsutils "github.com/liqotech/liqo/pkg/utils/flags"
 	"github.com/liqotech/liqo/pkg/utils/mapper"
 	"github.com/liqotech/liqo/pkg/utils/restcfg"
@@ -42,7 +40,7 @@ import (
 
 var (
 	scheme  = runtime.NewScheme()
-	options = fabric.NewOptions(gateway.NewOptions())
+	options = gwfabric.NewOptions(gateway.NewOptions())
 )
 
 func init() {
@@ -60,7 +58,7 @@ func main() {
 
 	flagsutils.InitKlogFlags(cmd.Flags())
 	restcfg.InitFlags(cmd.Flags())
-	fabric.InitFlags(cmd.Flags(), options)
+	gwfabric.InitFlags(cmd.Flags(), options)
 
 	gateway.InitFlags(cmd.Flags(), options.GwOptions)
 	if err := gateway.MarkFlagsRequired(&cmd); err != nil {
@@ -105,30 +103,32 @@ func run(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("unable to set up readyz probe: %w", err)
 	}
 
-	inr, err := geneve.NewInternalNodeReconciler(
+	gtr, err := gwfabric.NewGeneveTunnelReconciler(
 		mgr.GetClient(),
 		mgr.GetScheme(),
-		mgr.GetEventRecorderFor("internalnode-controller"),
+		mgr.GetEventRecorder("genevetunnel-controller"),
 		options,
 	)
 	if err != nil {
-		return fmt.Errorf("unable to create internalnode reconciler: %w", err)
+		return fmt.Errorf("unable to create geneve tunnel reconciler: %w", err)
 	}
 
-	if err := inr.SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("unable to setup internalnode reconciler: %w", err)
+	if err := gtr.SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("unable to setup geneve tunnel reconciler: %w", err)
 	}
 
-	runnableGuest, err := concurrent.NewRunnableGuest(options.GwOptions.ContainerName)
-	if err != nil {
-		return fmt.Errorf("unable to create runnable guest: %w", err)
+	if options.GwOptions.LeaderElection {
+		runnableGuest, err := concurrent.NewRunnableGuest(options.GwOptions.ContainerName)
+		if err != nil {
+			return fmt.Errorf("unable to create runnable guest: %w", err)
+		}
+		if err := runnableGuest.Start(cmd.Context()); err != nil {
+			return fmt.Errorf("unable to start runnable guest: %w", err)
+		}
+		defer runnableGuest.Close()
 	}
-	if err := runnableGuest.Start(cmd.Context()); err != nil {
-		return fmt.Errorf("unable to start runnable guest: %w", err)
-	}
-	defer runnableGuest.Close()
 
-	runnableGeneveCleanup, err := cleanup.NewRunnableGeneveCleanup(mgr.GetClient(), options.GeneveCleanupInterval)
+	runnableGeneveCleanup, err := gwfabric.NewRunnableGeneveCleanup(mgr.GetClient(), options.GeneveCleanupInterval)
 	if err != nil {
 		return fmt.Errorf("unable to create runnable geneve cleanup: %w", err)
 	}

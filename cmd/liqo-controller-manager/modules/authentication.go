@@ -1,4 +1,4 @@
-// Copyright 2019-2025 The Liqo Authors
+// Copyright 2019-2026 The Liqo Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -28,7 +28,7 @@ import (
 	"github.com/liqotech/liqo/pkg/liqo-controller-manager/authentication"
 	identitycontroller "github.com/liqotech/liqo/pkg/liqo-controller-manager/authentication/identity-controller"
 	identitycreatorcontroller "github.com/liqotech/liqo/pkg/liqo-controller-manager/authentication/identitycreator-controller"
-	localrenwercontroller "github.com/liqotech/liqo/pkg/liqo-controller-manager/authentication/localrenwer-controller"
+	localrenwercontroller "github.com/liqotech/liqo/pkg/liqo-controller-manager/authentication/localrenewer-controller"
 	localresourceslicecontroller "github.com/liqotech/liqo/pkg/liqo-controller-manager/authentication/localresourceslice-controller"
 	noncecreatorcontroller "github.com/liqotech/liqo/pkg/liqo-controller-manager/authentication/noncecreator-controller"
 	noncesigner "github.com/liqotech/liqo/pkg/liqo-controller-manager/authentication/noncesigner-controller"
@@ -47,6 +47,7 @@ type AuthOption struct {
 	APIServerAddressOverride string
 	CAOverrideB64            string
 	TrustedCA                bool
+	TLSCompatibilityMode     bool
 	SliceStatusOptions       *remoteresourceslicecontroller.SliceStatusOptions
 }
 
@@ -61,6 +62,7 @@ func NewAuthOption(identityProvider identitymanager.IdentityProvider, namespaceM
 		APIServerAddressOverride: opts.APIServerAddressOverride,
 		CAOverrideB64:            opts.CAOverride,
 		TrustedCA:                opts.TrustedCA,
+		TLSCompatibilityMode:     opts.TLSCompatibilityMode,
 		SliceStatusOptions: &remoteresourceslicecontroller.SliceStatusOptions{
 			EnableStorage:             opts.EnableStorage,
 			LocalRealStorageClassName: opts.RealStorageClassName,
@@ -85,7 +87,7 @@ func SetupAuthenticationModule(ctx context.Context, mgr manager.Manager, uncache
 		}
 	}
 
-	if err := enforceAuthenticationKeys(ctx, uncachedClient, opts.LiqoNamespace); err != nil {
+	if err := enforceAuthenticationKeys(ctx, uncachedClient, opts.LiqoNamespace, opts.TLSCompatibilityMode); err != nil {
 		klog.Errorf("Unable to enforce authentication keys: %v", err)
 		return err
 	}
@@ -159,7 +161,7 @@ func SetupAuthenticationModule(ctx context.Context, mgr manager.Manager, uncache
 
 	// Configure controllers that handle the certificate rotation.
 	localRenewerReconciler := localrenwercontroller.NewLocalRenewerReconciler(mgr.GetClient(), mgr.GetScheme(),
-		opts.LiqoNamespace, opts.LocalClusterID,
+		opts.LocalClusterID,
 		mgr.GetEventRecorderFor("local-renewer-controller"))
 	if err := localRenewerReconciler.SetupWithManager(mgr); err != nil {
 		klog.Errorf("Unable to setup the local renewer reconciler: %v", err)
@@ -167,8 +169,7 @@ func SetupAuthenticationModule(ctx context.Context, mgr manager.Manager, uncache
 	}
 
 	remoteRenewerReconciler := remoterenwercontroller.NewRemoteRenewerReconciler(mgr.GetClient(), mgr.GetScheme(),
-		opts.IdentityProvider, opts.NamespaceManager,
-		opts.APIServerAddressOverride, caOverride, opts.TrustedCA,
+		opts.NamespaceManager,
 		mgr.GetEventRecorderFor("remote-renewer-controller"))
 	if err := remoteRenewerReconciler.SetupWithManager(mgr); err != nil {
 		klog.Errorf("Unable to setup the remote renewer reconciler: %v", err)
@@ -178,8 +179,8 @@ func SetupAuthenticationModule(ctx context.Context, mgr manager.Manager, uncache
 	return nil
 }
 
-func enforceAuthenticationKeys(ctx context.Context, cl client.Client, liqoNamespace string) error {
-	if err := authentication.InitClusterKeys(ctx, cl, liqoNamespace); err != nil {
+func enforceAuthenticationKeys(ctx context.Context, cl client.Client, liqoNamespace string, tlsCompatibilityMode bool) error {
+	if err := authentication.InitClusterKeys(ctx, cl, liqoNamespace, tlsCompatibilityMode); err != nil {
 		return err
 	}
 

@@ -26,7 +26,7 @@ from sphinxawesome_theme.postprocess import Icons
 # -- Project information -----------------------------------------------------
 
 project = 'Liqo'
-copyright = '2019-2025, The Liqo Authors'
+copyright = '2019-2026, The Liqo Authors'
 author = 'The Liqo Authors'
 
 
@@ -54,7 +54,7 @@ templates_path = ['_templates']
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
-exclude_patterns = ['_build', '_legacy', 'Thumbs.db', '.DS_Store', 'README.md', 'requirements.txt']
+exclude_patterns = ['_build', '_legacy', '.venv', 'Thumbs.db', '.DS_Store', 'README.md', 'requirements.txt']
 
 linkcheck_ignore = [
     r'http://localhost:\d+/?',  # Localhost links
@@ -65,7 +65,11 @@ linkcheck_ignore = [
     'https://ieeexplore.ieee.org',
     'https://dl.acm.org', # often 403
     'https://scholar.google.com',
-    'https://kubernetes.io/docs/*'
+    'https://kubernetes.io/docs/*',
+    'https://github.com/cilium/cilium/blob/v1.18.4/install/kubernetes/cilium/values.yaml',
+    'https://liqo-io.slack.com/*', # often 403
+    'https://helm.sh', # often ReadTimeout
+    'https://kind.sigs.k8s.io/docs/user/quick-start/*' # often ReadTimeout
 ]
 
 
@@ -76,8 +80,7 @@ linkcheck_ignore = [
 #
 html_permalinks_icon = '<span class="fa fa-link text-sm"></span>'
 html_theme = 'sphinxawesome_theme'
-pygments_style = "colorful"
-pygments_style_dark = "dracula"
+pygments_style = "default"
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,

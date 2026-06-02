@@ -1,4 +1,4 @@
-// Copyright 2019-2025 The Liqo Authors
+// Copyright 2019-2026 The Liqo Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,5 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package cleanup provides a gateway to the cleanup service.
-package cleanup
+package utils
+
+import (
+	"testing"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+
+	"github.com/liqotech/liqo/pkg/utils/testutil"
+)
+
+func TestUtils(t *testing.T) {
+	RegisterFailHandler(Fail)
+	RunSpecs(t, "Authentication Utils Suite")
+}
+
+var _ = BeforeSuite(func() {
+	testutil.LogsToGinkgoWriter()
+})

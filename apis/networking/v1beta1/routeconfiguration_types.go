@@ -1,4 +1,4 @@
-// Copyright 2019-2025 The Liqo Authors
+// Copyright 2019-2026 The Liqo Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -83,6 +83,8 @@ type Rule struct {
 	Oif *string `json:"oif,omitempty"`
 	// FwMark is the firewall mark of the Rule.
 	FwMark *int `json:"fwmark,omitempty"`
+	// Priority is the priority of the Rule.
+	Priority *int `json:"priority,omitempty"`
 	// Routes is the list of routes of the Rule.
 	Routes []Route `json:"routes"`
 	// TargetRef is the reference to the target object of the rule.

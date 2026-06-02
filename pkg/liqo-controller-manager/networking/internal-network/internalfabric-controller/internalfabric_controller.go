@@ -1,4 +1,4 @@
-// Copyright 2019-2025 The Liqo Authors
+// Copyright 2019-2026 The Liqo Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@ package internalfabriccontroller
 
 import (
 	"context"
+	"fmt"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -33,14 +34,16 @@ import (
 // InternalFabricReconciler manage InternalFabric lifecycle.
 type InternalFabricReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme                         *runtime.Scheme
+	RouteConfigurationRulePriority int
 }
 
 // NewInternalFabricReconciler returns a new InternalFabricReconciler.
-func NewInternalFabricReconciler(cl client.Client, s *runtime.Scheme) *InternalFabricReconciler {
+func NewInternalFabricReconciler(cl client.Client, s *runtime.Scheme, routeConfigurationRulePriority int) *InternalFabricReconciler {
 	return &InternalFabricReconciler{
-		Client: cl,
-		Scheme: s,
+		Client:                         cl,
+		Scheme:                         s,
+		RouteConfigurationRulePriority: routeConfigurationRulePriority,
 	}
 }
 
@@ -56,46 +59,53 @@ func NewInternalFabricReconciler(cl client.Client, s *runtime.Scheme) *InternalF
 // +kubebuilder:rbac:groups=networking.liqo.io,resources=internalnodes/finalizers,verbs=update
 
 // Reconcile manage InternalFabric lifecycle.
-func (r *InternalFabricReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res ctrl.Result, err error) {
+func (r *InternalFabricReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	internalFabric := &networkingv1beta1.InternalFabric{}
-	if err = r.Get(ctx, req.NamespacedName, internalFabric); err != nil {
+	if err := r.Get(ctx, req.NamespacedName, internalFabric); err != nil {
 		if apierrors.IsNotFound(err) {
-			klog.Infof("InternalFabric %q not found", req.NamespacedName)
+			klog.V(6).Infof("InternalFabric %q not found", req.NamespacedName)
 			return ctrl.Result{}, nil
 		}
-		klog.Errorf("Unable to get the InternalFabric %q: %s", req.NamespacedName, err)
-		return ctrl.Result{}, err
+		return ctrl.Result{}, fmt.Errorf("getting InternalFabric: %w", err)
 	}
 
-	if !internalFabric.DeletionTimestamp.IsZero() && controllerutil.ContainsFinalizer(internalFabric, consts.InternalFabricGeneveTunnelFinalizer) {
-		if err = deleteGeneveTunnels(ctx, r.Client, internalFabric); err != nil {
-			klog.Errorf("Unable to delete GeneveTunnels: %s", err)
-			return ctrl.Result{}, err
+	if !internalFabric.DeletionTimestamp.IsZero() {
+		if controllerutil.ContainsFinalizer(internalFabric, consts.InternalFabricGeneveTunnelFinalizer) {
+			if err := deleteGeneveTunnels(ctx, r.Client, internalFabric); err != nil {
+				return ctrl.Result{}, fmt.Errorf("deleting Geneve tunnels: %w", err)
+			}
 		}
+
+		// Remove the geneve tunnel finalizer and the old deprecated one from previous versions.
+		updated := controllerutil.RemoveFinalizer(internalFabric, consts.InternalFabricGeneveTunnelFinalizer)
+		updated = controllerutil.RemoveFinalizer(internalFabric, "internalfabric-controller.liqo.io/finalizer") || updated
+		if updated {
+			if err := r.Update(ctx, internalFabric); err != nil {
+				return ctrl.Result{}, fmt.Errorf("removing finalizer: %w", err)
+			}
+		}
+		return ctrl.Result{}, nil
 	}
 
 	// route configuration
 
-	if err = r.ensureRouteConfiguration(ctx, internalFabric); err != nil {
-		return ctrl.Result{}, err
+	if err := r.ensureRouteConfiguration(ctx, internalFabric); err != nil {
+		return ctrl.Result{}, fmt.Errorf("ensuring route configuration: %w", err)
 	}
 
-	// geneve tunnel
+	// geneve tunnels
 
 	var internalNodeList networkingv1beta1.InternalNodeList
-	if err = r.List(ctx, &internalNodeList); err != nil {
-		klog.Errorf("Unable to list InternalNodes: %s", err)
-		return ctrl.Result{}, err
+	if err := r.List(ctx, &internalNodeList); err != nil {
+		return ctrl.Result{}, fmt.Errorf("listing InternalNodes: %w", err)
 	}
 
-	if err = ensureGeneveTunnels(ctx, r.Client, r.Scheme, internalFabric, &internalNodeList); err != nil {
-		klog.Errorf("Unable to ensure GeneveTunnels: %s", err)
-		return ctrl.Result{}, err
+	if err := ensureGeneveTunnels(ctx, r.Client, r.Scheme, internalFabric, &internalNodeList); err != nil {
+		return ctrl.Result{}, fmt.Errorf("ensuring GeneveTunnels: %w", err)
 	}
 
-	if err = cleanupGeneveTunnels(ctx, r.Client, internalFabric, &internalNodeList); err != nil {
-		klog.Errorf("Unable to cleanup GeneveTunnels: %s", err)
-		return ctrl.Result{}, err
+	if err := cleanupGeneveTunnels(ctx, r.Client, internalFabric, &internalNodeList); err != nil {
+		return ctrl.Result{}, fmt.Errorf("cleaning up GeneveTunnels: %w", err)
 	}
 
 	return ctrl.Result{}, nil

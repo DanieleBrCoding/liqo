@@ -1,4 +1,4 @@
-// Copyright 2019-2025 The Liqo Authors
+// Copyright 2019-2026 The Liqo Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -28,13 +28,13 @@ const (
 )
 
 func (r *RouteConfigurationReconciler) ensureRouteConfigurationFinalizerPresence(
-	ctx context.Context, fwcfg *networkingv1beta1.RouteConfiguration) error {
-	ctrlutil.AddFinalizer(fwcfg, routeconfigurationControllerFinalizer)
-	return r.Client.Update(ctx, fwcfg)
+	ctx context.Context, routecfg *networkingv1beta1.RouteConfiguration) error {
+	ctrlutil.AddFinalizer(routecfg, routeconfigurationControllerFinalizer)
+	return r.Update(ctx, routecfg)
 }
 
 func (r *RouteConfigurationReconciler) ensureRouteConfigurationFinalizerAbsence(
-	ctx context.Context, fwcfg *networkingv1beta1.RouteConfiguration) error {
-	ctrlutil.RemoveFinalizer(fwcfg, routeconfigurationControllerFinalizer)
-	return r.Client.Update(ctx, fwcfg)
+	ctx context.Context, routecfg *networkingv1beta1.RouteConfiguration) error {
+	ctrlutil.RemoveFinalizer(routecfg, routeconfigurationControllerFinalizer)
+	return r.Update(ctx, routecfg)
 }

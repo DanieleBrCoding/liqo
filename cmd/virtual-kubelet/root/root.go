@@ -144,6 +144,7 @@ func runRootCommand(ctx context.Context, c *Opts) error {
 		return err
 	}
 
+	restcfg.UpdateCfgCertOnSecretChange(ctx, remoteConfig, localClient, c.TenantNamespace, c.RemoteKubeconfigSecretName)
 	restcfg.SetRateLimiter(remoteConfig)
 
 	// Get reflectors configurations
@@ -275,6 +276,8 @@ func runRootCommand(ctx context.Context, c *Opts) error {
 		InformerResyncPeriod: c.InformerResyncPeriod,
 		PingDisabled:         c.NodePingInterval == 0,
 		CheckNetworkStatus:   c.NodeCheckNetwork,
+
+		VirtualNode: vn,
 	}
 
 	var nodeReady chan struct{}

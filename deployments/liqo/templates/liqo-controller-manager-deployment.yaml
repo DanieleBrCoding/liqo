@@ -52,6 +52,7 @@ spec:
           - --liqo-namespace=$(POD_NAMESPACE)
           - --networking-enabled={{ .Values.networking.enabled }}
           - --authentication-enabled={{ .Values.authentication.enabled }}
+          - --tls-compatibility-mode={{ .Values.authentication.tlsCompatibilityMode }}
           - --offloading-enabled={{ .Values.offloading.enabled }}
           - --default-limits-enforcement={{ .Values.controllerManager.config.defaultLimitsEnforcement }}
           {{- $d := dict "commandName" "--default-node-resources" "dictionary" .Values.offloading.defaultNodeResources -}}
@@ -85,6 +86,7 @@ spec:
           {{- if .Values.apiServer.trustedCA }}
           - --trusted-ca
           {{- end }}
+          - --fabric-route-rule-priority={{ .Values.networking.fabric.config.routeConfigurationRulePriority }}
           - --fabric-full-masquerade-enabled={{ .Values.networking.fabric.config.fullMasquerade }}
           - --gateway-masquerade-bypass-enabled={{ .Values.networking.fabric.config.gatewayMasqueradeBypass }}
           - --geneve-port={{ .Values.networking.genevePort }}

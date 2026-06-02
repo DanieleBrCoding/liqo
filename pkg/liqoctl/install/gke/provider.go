@@ -1,4 +1,4 @@
-// Copyright 2019-2025 The Liqo Authors
+// Copyright 2019-2026 The Liqo Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -128,9 +128,6 @@ func (o *Options) Values() map[string]interface{} {
 	return map[string]interface{}{
 		"ipam": map[string]interface{}{
 			"pools": []interface{}{
-				"10.0.0.0/8",
-				"192.168.0.0/16",
-				"172.16.0.0/12",
 				"34.118.224.0/20",
 			},
 		},
