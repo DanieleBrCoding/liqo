@@ -210,6 +210,11 @@ func (ner *NamespacedEndpointSliceReflector) Handle(ctx context.Context, name st
 		// 3) ClusterID of the cluster on which that endpoint is running
 
 		var remoteConnectionsData directconnectioninfo.InfoList
+		// Collect direct-connection metadata for all eligible endpoints. If data is
+		// temporarily unavailable (e.g. IPAM cache not ready), we return an error to
+		// trigger a retry instead of silently falling back to hub-and-spoke routing.
+		expectedDirectEntries := 0
+		missingDirectEntries := 0
 
 		for _, endpoint := range local.Endpoints {
 			if endpoint.NodeName == nil {
@@ -226,9 +231,17 @@ func (ner *NamespacedEndpointSliceReflector) Handle(ctx context.Context, name st
 				continue
 			}
 
+			expectedDirectEntries++
+
 			clusterID, err := getters.RetrieveRemoteClusterIDFromNode(node)
 			if err != nil {
 				klog.Errorf("Failed to retrieve remote cluster ID from node %q: %v", *endpoint.NodeName, err)
+				continue
+			}
+
+			if endpoint.TargetRef == nil {
+				klog.Errorf("Missing targetRef for endpoint with node %q in endpointslice %q", *endpoint.NodeName, local.Name)
+				missingDirectEntries++
 				continue
 			}
 
@@ -237,25 +250,32 @@ func (ner *NamespacedEndpointSliceReflector) Handle(ctx context.Context, name st
 			ipsObj, err := ner.localIPs.Get(objectName)
 			if err != nil {
 				klog.Errorf("Failed to get IPs for targetRef %q: %v", objectName, err)
+				missingDirectEntries++
 				continue
 			}
 
 			localIPs, err := ipamutils.GetLocalIPFromObject(ipsObj)
 			if err != nil {
 				klog.Errorf("Failed to get local IPs from object for targetRef %q: %v", objectName, err)
+				missingDirectEntries++
 				continue
 			}
 
 			remappedIPs, err := ipamutils.GetRemappedIPFromObject(ipsObj)
 			if err != nil {
 				klog.Errorf("Failed to get remapped IPs from object for targetRef %q: %v", objectName, err)
+				missingDirectEntries++
 				continue
 			}
 
 			remoteConnectionsData.Add(clusterID, []string{localIPs}, []string{remappedIPs})
 		}
+		if expectedDirectEntries > 0 && (missingDirectEntries > 0 || len(remoteConnectionsData.Items) == 0) {
+			return fmt.Errorf("direct connection data incomplete for endpointslice %q: expected entries=%d, missing=%d", local.Name, expectedDirectEntries, missingDirectEntries)
+		}
+
 		if len(remoteConnectionsData.Items) == 0 {
-			klog.Errorf("No direct connection data found for this endpointslice: %s", local.Name)
+			klog.V(4).Infof("No eligible direct connection data found for endpointslice %q", local.Name)
 		} else {
 			var err error
 

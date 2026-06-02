@@ -1,0 +1,57 @@
+# RBAC e Deployment per il toy-labeler controller
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: toy-labeler-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: toy-labeler
+  namespace: toy-labeler-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: toy-labeler
+rules:
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: toy-labeler
+subjects:
+  - kind: ServiceAccount
+    name: toy-labeler
+    namespace: toy-labeler-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: toy-labeler
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: toy-labeler
+  namespace: toy-labeler-system
+  labels:
+    app: toy-labeler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: toy-labeler
+  template:
+    metadata:
+      labels:
+        app: toy-labeler
+    spec:
+      serviceAccountName: toy-labeler
+      containers:
+        - name: toy-labeler
+          image: toy-labeler:latest
+          imagePullPolicy: IfNotPresent
