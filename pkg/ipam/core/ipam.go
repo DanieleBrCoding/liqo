@@ -1,4 +1,4 @@
-// Copyright 2019-2025 The Liqo Authors
+// Copyright 2019-2026 The Liqo Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -213,6 +213,15 @@ func checkRoots(roots []netip.Prefix) error {
 			return err
 		}
 	}
+
+	for i := range roots {
+		for j := i + 1; j < len(roots); j++ {
+			if roots[i].Overlaps(roots[j]) {
+				return fmt.Errorf("pools %s and %s overlap", roots[i], roots[j])
+			}
+		}
+	}
+
 	return nil
 }
 

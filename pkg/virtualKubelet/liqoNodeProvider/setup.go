@@ -1,4 +1,4 @@
-// Copyright 2019-2025 The Liqo Authors
+// Copyright 2019-2026 The Liqo Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -28,6 +28,7 @@ import (
 	"k8s.io/client-go/rest"
 
 	liqov1beta1 "github.com/liqotech/liqo/apis/core/v1beta1"
+	offloadingv1beta1 "github.com/liqotech/liqo/apis/offloading/v1beta1"
 	liqoconst "github.com/liqotech/liqo/pkg/consts"
 )
 
@@ -59,6 +60,8 @@ type InitConfig struct {
 	InformerResyncPeriod time.Duration
 	PingDisabled         bool
 	CheckNetworkStatus   bool
+
+	VirtualNode offloadingv1beta1.VirtualNode
 }
 
 // NewLiqoNodeProvider creates and returns a new LiqoNodeProvider.
@@ -72,7 +75,7 @@ func NewLiqoNodeProvider(cfg *InitConfig) *LiqoNodeProvider {
 		terminating:       false,
 		lastAppliedLabels: map[string]string{},
 
-		networkModuleEnabled: false,
+		networkModuleEnabled: nil, // set once ForeignCluster is first observed
 		networkReady:         false,
 		resyncPeriod:         cfg.InformerResyncPeriod,
 		pingDisabled:         cfg.PingDisabled,
@@ -99,19 +102,27 @@ func node(cfg *InitConfig) *corev1.Node {
 		corev1.LabelNodeExcludeBalancers: strconv.FormatBool(true),
 		labelNodeExcludeBalancersAlpha:   strconv.FormatBool(true),
 	}
+	lbls = labels.Merge(lbls, cfg.ExtraLabels)
+	lbls = labels.Merge(lbls, cfg.VirtualNode.Spec.Labels)
+
+	annots := cfg.ExtraAnnotations
+	annots = labels.Merge(annots, cfg.VirtualNode.Spec.Annotations)
+
+	taints := []corev1.Taint{{
+		Key:    liqoconst.VirtualNodeTolerationKey,
+		Value:  strconv.FormatBool(true),
+		Effect: corev1.TaintEffectNoExecute,
+	}}
+	taints = append(taints, cfg.VirtualNode.Spec.Taints...)
 
 	return &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        cfg.NodeName,
-			Labels:      labels.Merge(lbls, cfg.ExtraLabels),
-			Annotations: cfg.ExtraAnnotations,
+			Labels:      lbls,
+			Annotations: annots,
 		},
 		Spec: corev1.NodeSpec{
-			Taints: []corev1.Taint{{
-				Key:    liqoconst.VirtualNodeTolerationKey,
-				Value:  strconv.FormatBool(true),
-				Effect: corev1.TaintEffectNoExecute,
-			}},
+			Taints: taints,
 		},
 		Status: corev1.NodeStatus{
 			NodeInfo: corev1.NodeSystemInfo{

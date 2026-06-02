@@ -1,4 +1,4 @@
-// Copyright 2019-2025 The Liqo Authors
+// Copyright 2019-2026 The Liqo Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -31,6 +31,7 @@ import (
 	liqov1beta1 "github.com/liqotech/liqo/apis/core/v1beta1"
 	"github.com/liqotech/liqo/pkg/consts"
 	liqocontrollermanager "github.com/liqotech/liqo/pkg/liqo-controller-manager"
+	connfailoverctrl "github.com/liqotech/liqo/pkg/liqo-controller-manager/offloading/connection-failover-controller"
 	mapsctrl "github.com/liqotech/liqo/pkg/liqo-controller-manager/offloading/namespacemap-controller"
 	nsoffctrl "github.com/liqotech/liqo/pkg/liqo-controller-manager/offloading/namespaceoffloading-controller"
 	nodefailurectrl "github.com/liqotech/liqo/pkg/liqo-controller-manager/offloading/nodefailure-controller"
@@ -114,8 +115,9 @@ func SetupOffloadingModule(ctx context.Context, mgr manager.Manager, opts *Offlo
 	}
 
 	shadowPodReconciler := &shadowpodctrl.Reconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("shadowpod-controller"),
 	}
 	if err = shadowPodReconciler.SetupWithManager(mgr, opts.ShadowPodWorkers); err != nil {
 		klog.Errorf("Unable to setup the shadowpod reconciler: %v", err)
@@ -128,6 +130,15 @@ func SetupOffloadingModule(ctx context.Context, mgr manager.Manager, opts *Offlo
 	}
 	if err = shadowEpsReconciler.SetupWithManager(ctx, mgr, opts.ShadowEndpointSliceWorkers); err != nil {
 		klog.Errorf("Unable to setup the shadowendpointslice reconciler: %v", err)
+		return err
+	}
+
+	connFailoverReconciler := &connfailoverctrl.Reconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}
+	if err = connFailoverReconciler.SetupWithManager(ctx, mgr, opts.ShadowEndpointSliceWorkers); err != nil {
+		klog.Errorf("Unable to setup the connection-failover reconciler: %v", err)
 		return err
 	}
 

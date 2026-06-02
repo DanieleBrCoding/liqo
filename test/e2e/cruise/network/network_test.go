@@ -1,4 +1,4 @@
-// Copyright 2019-2025 The Liqo Authors
+// Copyright 2019-2026 The Liqo Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	liqov1beta1 "github.com/liqotech/liqo/apis/core/v1beta1"
+	networkingv1beta1 "github.com/liqotech/liqo/apis/networking/v1beta1"
 	"github.com/liqotech/liqo/pkg/gateway"
 	"github.com/liqotech/liqo/pkg/gateway/concurrent"
 	networkflags "github.com/liqotech/liqo/pkg/liqoctl/test/network/flags"
@@ -136,6 +137,8 @@ var _ = Describe("Liqo E2E", func() {
 					RestartPods(testContext.Clusters[i].ControllerClient)
 				}
 
+				time.Sleep(time.Second * 60)
+
 				// Check if there is only one active gateway pod per remote cluster.
 				for i := range testContext.Clusters {
 					numActiveGateway := testContext.Clusters[i].NumPeeredConsumers + testContext.Clusters[i].NumPeeredProviders
@@ -160,11 +163,19 @@ var _ = Describe("Liqo E2E", func() {
 						RestartPods(testContext.Clusters[j].ControllerClient)
 					}
 
+					restartTime := time.Now()
+
 					// Check if there is only one active gateway pod per remote cluster.
 					for j := range testContext.Clusters {
 						numActiveGateway := testContext.Clusters[j].NumPeeredConsumers + testContext.Clusters[j].NumPeeredProviders
 						Eventually(func() error {
 							return checkUniqueActiveGatewayPod(testContext.Clusters[j].ControllerClient, numActiveGateway)
+						}, timeout, interval).Should(Succeed())
+					}
+
+					for j := range testContext.Clusters {
+						Eventually(func() error {
+							return checkConnectionsReady(testContext.Clusters[j].ControllerClient, restartTime)
 						}, timeout, interval).Should(Succeed())
 					}
 
@@ -339,6 +350,26 @@ func RestartPods(cl client.Client) {
 		}
 		return nil
 	}, timeout, interval).Should(Succeed())
+}
+
+func checkConnectionsReady(cl client.Client, restartTime time.Time) error {
+	connectionList := &networkingv1beta1.ConnectionList{}
+	if err := cl.List(ctx, connectionList); err != nil {
+		return fmt.Errorf("unable to list connections: %w", err)
+	}
+
+	for i := range connectionList.Items {
+		conn := &connectionList.Items[i]
+		if conn.Status.Value != networkingv1beta1.Connected {
+			return fmt.Errorf("connection %s/%s is not connected (status: %s)",
+				conn.Namespace, conn.Name, conn.Status.Value)
+		}
+		if !conn.Status.Latency.Timestamp.After(restartTime) {
+			return fmt.Errorf("connection %s/%s latency timestamp %s is not after restart time %s",
+				conn.Namespace, conn.Name, conn.Status.Latency.Timestamp, restartTime)
+		}
+	}
+	return nil
 }
 
 // checkUniqueActiveGatewayPod checks if there is only one active gateway pod.

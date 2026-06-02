@@ -1,4 +1,4 @@
-// Copyright 2019-2025 The Liqo Authors
+// Copyright 2019-2026 The Liqo Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -147,7 +147,7 @@ func (npr *NamespacedPodReflector) Handle(ctx context.Context, name string) erro
 	if !localExists {
 		defer tracer.Step("Ensured the absence of the remote object")
 		if shadowExists {
-			klog.V(4).Infof("Deleting remote shadowpod %q, since local pod %q does no longer exist", npr.RemoteRef(name), npr.LocalRef(name))
+			klog.Infof("Deleting remote shadowpod %q, since local pod %q does no longer exist", npr.RemoteRef(name), npr.LocalRef(name))
 			return npr.DeleteRemote(ctx, npr.remoteShadowPodsClient, "ShadowPod", name, shadow.GetUID())
 		}
 
@@ -183,7 +183,7 @@ func (npr *NamespacedPodReflector) Handle(ctx context.Context, name string) erro
 		}
 
 		// If the remote is already terminating, we need to reflect the status to the local one.
-		return npr.HandleStatus(ctx, local, remote, npr.RetrievePodInfo(local.GetName()))
+		return npr.HandleStatus(ctx, local, remote, shadow, npr.RetrievePodInfo(local.GetName()))
 	}
 
 	// Do not offload the pod if it was previously rejected, as new copies should have already been re-created.
@@ -201,7 +201,10 @@ func (npr *NamespacedPodReflector) Handle(ctx context.Context, name string) erro
 
 	// Skip reflection for pods in a terminal phase (Succeeded or Failed).
 	// Avoid recreating ShadowPods and changing local pod status when the workload already completed.
-	if local.Status.Phase == corev1.PodSucceeded || local.Status.Phase == corev1.PodFailed {
+	isTerminalPhase := local.Status.Phase == corev1.PodSucceeded || local.Status.Phase == corev1.PodFailed
+	// Make sure the remote pod is also in terminal state, to avoid mismatches between local and remote state when the status is not reflected anymore.
+	isSynced := remote == nil || remote.Status.Phase == local.Status.Phase
+	if isSynced && isTerminalPhase {
 		klog.V(4).Infof("Skipping reflection of local pod %q as it is in terminal phase %q", npr.LocalRef(name), local.Status.Phase)
 		return nil
 	}
@@ -279,7 +282,7 @@ func (npr *NamespacedPodReflector) Handle(ctx context.Context, name string) erro
 	}
 
 	// Reflect the status from the remote pod to the local one.
-	return npr.HandleStatus(ctx, local, remote, info)
+	return npr.HandleStatus(ctx, local, remote, shadow, info)
 }
 
 // HandleLabels mutates the local object labels, to mark the pod as offloaded and allow filtering at the informer level.
@@ -373,9 +376,32 @@ func (npr *NamespacedPodReflector) ShouldUpdateShadowPod(ctx context.Context, sh
 }
 
 // HandleStatus reflects the status from the remote Pod to the local one.
-func (npr *NamespacedPodReflector) HandleStatus(ctx context.Context, local, remote *corev1.Pod, info *PodInfo) error {
-	// Do not handle the status in case the remote pod has not yet been created, or already terminated.
+func (npr *NamespacedPodReflector) HandleStatus(ctx context.Context, local, remote *corev1.Pod,
+	shadow *offloadingv1beta1.ShadowPod, info *PodInfo) error {
+	// The remote pod does not exist yet, or has been deleted.
 	if remote == nil {
+		localPodRef := npr.LocalRef(local.GetName())
+		switch {
+		case shadow == nil:
+			// Shadow pod still does not exist, wait for resources propagation.
+			klog.V(4).Infof("Remote pod %q and shadowpod do not exist, skipping status update", localPodRef)
+		case shadow.Status.Phase == corev1.PodSucceeded || shadow.Status.Phase == corev1.PodFailed:
+			// If the shadow pod reports a terminal phase, the real pod completed normally we need to
+			// manage the orphan pod.
+			phase := shadow.Status.Phase
+			po := forge.LocalRejectedPod(local, phase, forge.RemotePodTerminatedReason)
+			if reflect.DeepEqual(local.Status, po.Status) {
+				klog.V(4).Infof("Skipping local pod %q status update, as already synced", localPodRef)
+				return nil
+			}
+
+			klog.Infof("Updating local pod %q status to %q since the remote pod is no longer available", localPodRef, phase)
+			if _, err := npr.localPodsClient.UpdateStatus(ctx, po, metav1.UpdateOptions{FieldManager: forge.ReflectionFieldManager}); err != nil {
+				klog.Errorf("Failed to update local pod %q status: %v", localPodRef, err)
+				return fmt.Errorf("updating local pod %q status: %w", localPodRef, err)
+			}
+		}
+
 		return nil
 	}
 
@@ -751,18 +777,33 @@ func (npr *NamespacedPodReflector) InferAdditionalRestarts(local, remote *corev1
 
 // List retrieves the list of reflected pods.
 func (npr *NamespacedPodReflector) List() ([]interface{}, error) {
-	listShPod, err := virtualkubelet.List[virtualkubelet.Lister[*offloadingv1beta1.ShadowPod], *offloadingv1beta1.ShadowPod](
+	nodeSelector := labels.SelectorFromSet(labels.Set{forge.LiqoOriginClusterNodeName: forge.LiqoNodeName})
+
+	listShPod, err := virtualkubelet.ListWithLabelSelector[virtualkubelet.Lister[*offloadingv1beta1.ShadowPod]](
+		nodeSelector,
 		npr.remoteShadowPods,
 	)
+
 	if err != nil {
 		return nil, err
 	}
-	listPod, err := virtualkubelet.List[virtualkubelet.Lister[*corev1.Pod], *corev1.Pod](
+
+	listLocalPods, err := virtualkubelet.List[virtualkubelet.Lister[*corev1.Pod]](
 		npr.localPods,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	listRemotePods, err := virtualkubelet.ListWithLabelSelector[virtualkubelet.Lister[*corev1.Pod]](
+		nodeSelector,
 		npr.remotePods,
 	)
+
 	if err != nil {
 		return nil, err
 	}
-	return append(listShPod, listPod...), nil
+
+	return append(append(listShPod, listLocalPods...), listRemotePods...), nil
 }

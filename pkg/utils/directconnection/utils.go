@@ -17,14 +17,15 @@ package directconnection
 
 import (
 	corev1 "k8s.io/api/core/v1"
+	consts "github.com/liqotech/liqo/pkg/consts"
 )
 
 // ShouldIncludeDataFromNode returns whether to include the direct connection data
-// (IP, remapped IP and clusterID) of the pods deployed on this node to the remote cluster.
+// (IP and clusterID) of the pods deployed on this node to the remote cluster.
 //
 // It returns false in case the node is not virtual and in case it's not the one this VK is reflecting to.
 //
-// Used only when the the use-direct-link is requested.
+// Used only when the the use-direct-connections is requested.
 //
 // E.G.: in case this VK is reflecting to "clusterA", no data from pods running on nodes belonging to "clusterA" will be included.
 func ShouldIncludeDataFromNode(node *corev1.Node, remoteClusterID string) bool {
@@ -36,11 +37,11 @@ func ShouldIncludeDataFromNode(node *corev1.Node, remoteClusterID string) bool {
 		return false
 	}
 
-	if node.Labels["liqo.io/type"] != "virtual-node" {
+	if node.Labels[consts.TypeLabel] != consts.TypeNode {
 		return false
 	}
 
-	if node.Labels["liqo.io/remote-cluster-id"] == remoteClusterID {
+	if node.Labels[consts.RemoteClusterID] == remoteClusterID {
 		return false
 	}
 

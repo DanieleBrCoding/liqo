@@ -1,4 +1,4 @@
-// Copyright 2019-2025 The Liqo Authors
+// Copyright 2019-2026 The Liqo Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package route
 
 import (
+	"errors"
 	"fmt"
 	"net"
 
@@ -55,21 +56,13 @@ func EnsureRoutesAbsence(routes []networkingv1beta1.Route, tableID uint32) error
 		if routes[i].Dst == nil {
 			continue
 		}
-		_, dst, err := net.ParseCIDR(routes[i].Dst.String())
+		existingRoute, exists, err := ExistsRoute(&routes[i], tableID)
 		if err != nil {
-			return err
-		}
-		route := &netlink.Route{
-			Dst: dst,
-		}
-
-		_, exists, err := ExistsRoute(&routes[i], tableID)
-		if err != nil {
-			return err
+			return fmt.Errorf("checking route existence: %w", err)
 		}
 		if exists {
-			if err := netlink.RouteDel(route); err != nil {
-				return err
+			if err := netlink.RouteDel(existingRoute); err != nil {
+				return fmt.Errorf("deleting route: %w", err)
 			}
 		}
 	}
@@ -178,7 +171,10 @@ func forgeNetlinkRoute(route *networkingv1beta1.Route, tableID uint32) (*netlink
 	if route.Dev != nil {
 		link, err := netlink.LinkByName(*route.Dev)
 		if err != nil {
-			return nil, err
+			if errors.As(err, &netlink.LinkNotFoundError{}) {
+				return nil, fmt.Errorf("link %s not found: %w", *route.Dev, err)
+			}
+			return nil, fmt.Errorf("getting link %s: %w", *route.Dev, err)
 		}
 		linkIndex = link.Attrs().Index
 	}

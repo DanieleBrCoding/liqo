@@ -1,4 +1,4 @@
-// Copyright 2019-2025 The Liqo Authors
+// Copyright 2019-2026 The Liqo Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,8 @@
 package fabric
 
 import (
+	"time"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
@@ -37,19 +39,25 @@ const (
 	// FlagNameProbeAddr is the address for the health probe endpoint.
 	FlagNameProbeAddr FlagName = "health-probe-bind-address"
 
-	// FlagNameDisableARP is the flag to enable ARP.
-	FlagNameDisableARP FlagName = "disable-arp"
+	// FlagNameReconcileTimeout is the reconciliation timeout.
+	FlagNameReconcileTimeout FlagName = "reconcile-timeout"
 
 	// FlagNameEnableNftMonitor is the flag to enable the nftables monitor.
 	FlagNameEnableNftMonitor FlagName = "enable-nft-monitor"
+	// FlagNameEnableRouteMonitor is the flag to enable the route monitor.
+	FlagNameEnableRouteMonitor FlagName = "enable-route-monitor"
 
 	// FlagNameDisableKernelVersionCheck is the flag to enable the kernel version check.
 	FlagNameDisableKernelVersionCheck FlagName = "disable-kernel-version-check"
 	// FlagNameMinimumKernelVersion is the minimum kernel version required to run the wireguard interface.
 	FlagNameMinimumKernelVersion FlagName = "minimum-kernel-version"
 
+	// FlagNameDisableARP is the flag to enable ARP.
+	FlagNameDisableARP FlagName = "disable-arp"
 	// FlagNameGenevePort is the flag to set the Geneve port.
 	FlagNameGenevePort FlagName = "geneve-port"
+	// FlagNameGeneveCleanupInterval is the flag to set the Geneve cleanup interval.
+	FlagNameGeneveCleanupInterval FlagName = "geneve-cleanup-interval"
 )
 
 // RequiredFlags contains the list of the mandatory flags.
@@ -65,13 +73,18 @@ func InitFlags(flagset *pflag.FlagSet, opts *Options) {
 	flagset.StringVar(&opts.MetricsAddress, FlagNameMetricsAddress.String(), ":8082", "Address for the metrics endpoint")
 	flagset.StringVar(&opts.ProbeAddr, FlagNameProbeAddr.String(), ":8081", "Address for the health probe endpoint")
 
-	flagset.BoolVar(&opts.DisableARP, FlagNameDisableARP.String(), false, "Disable ARP")
+	flagset.DurationVar(&opts.ReconcileTimeout, FlagNameReconcileTimeout.String(), 10*time.Second, "Reconciliation timeout")
+
 	flagset.BoolVar(&opts.EnableNftMonitor, FlagNameEnableNftMonitor.String(), true, "Enable nftables monitor")
+	flagset.BoolVar(&opts.EnableRouteMonitor, FlagNameEnableRouteMonitor.String(), true, "Enable route monitor")
 
 	flagset.BoolVar(&opts.DisableKernelVersionCheck, FlagNameDisableKernelVersionCheck.String(), false, "Disable the kernel version check")
 	flagset.Var(&opts.MinimumKernelVersion, string(FlagNameMinimumKernelVersion), "Minimum kernel version required to run the wireguard interface")
 
+	flagset.BoolVar(&opts.DisableARP, FlagNameDisableARP.String(), false, "Disable ARP")
 	flagset.Uint16Var(&opts.GenevePort, FlagNameGenevePort.String(), consts.DefaultGenevePort, "Geneve port")
+	flagset.DurationVar(&opts.GeneveCleanupInterval, FlagNameGeneveCleanupInterval.String(),
+		consts.DefaultGeneveCleanupInterval, "Geneve cleanup interval")
 }
 
 // MarkFlagsRequired marks the flags as required.

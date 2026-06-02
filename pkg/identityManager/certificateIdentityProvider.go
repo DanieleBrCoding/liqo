@@ -1,4 +1,4 @@
-// Copyright 2019-2025 The Liqo Authors
+// Copyright 2019-2026 The Liqo Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -83,11 +83,9 @@ func (identityProvider *certificateIdentityProvider) GetRemoteCertificate(ctx co
 		return response, err
 	}
 
-	// check that this certificate is related to this signing request
-	if !bytes.Equal(signingRequestSecret, options.SigningRequest) && !options.IsUpdate {
-		err = kerrors.NewBadRequest(fmt.Sprintf("the stored and the provided CSR for cluster %s does not match", options.Cluster))
-		klog.Error(err)
-		return response, err
+	if !bytes.Equal(signingRequestSecret, options.SigningRequest) {
+		klog.Errorf("the stored and the provided CSR for cluster %s does not match", options.Cluster)
+		return response, NotMatchingCSRError
 	}
 
 	response.Certificate, ok = secret.Data[certificateSecretKey]

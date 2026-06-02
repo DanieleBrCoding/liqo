@@ -1,4 +1,4 @@
-// Copyright 2019-2025 The Liqo Authors
+// Copyright 2019-2026 The Liqo Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -77,12 +77,16 @@ func InitFlags(flagset *pflag.FlagSet, opts *Options) {
 	flagset.IntVar(&opts.IPWorkers, "ip-ctrl-workers", 1,
 		"The number of workers used to reconcile IP resources.")
 	flagset.Uint16Var(&opts.GenevePort, "geneve-port", 6081, "The port used by the Geneve tunnel")
+	flagset.IntVar(&opts.RouteConfigurationRulePriority, "fabric-route-rule-priority", 0,
+		"The priority of the ip rules created by the controller-manager for node/fabric routing")
 
 	// Authentication module
 	flagset.StringVar(&opts.APIServerAddressOverride, "api-server-address-override", "",
 		"Override the API server address where the Kuberentes APIServer is exposed")
 	flagset.StringVar(&opts.CAOverride, "ca-override", "", "Override the CA certificate used by Kubernetes to sign certificates (base64 encoded)")
 	flagset.BoolVar(&opts.TrustedCA, "trusted-ca", false, "Whether the Kubernetes APIServer certificate is issue by a trusted CA")
+	flagset.BoolVar(&opts.TLSCompatibilityMode, "tls-compatibility-mode", false,
+		"Enable TLS compatibility mode for client certificates and keys (use RSA instead of Ed25519)")
 	flagset.StringVar(&opts.AWSConfig.AwsAccessKeyID, "aws-access-key-id", "", "AWS IAM AccessKeyID for the Liqo User")
 	flagset.StringVar(&opts.AWSConfig.AwsSecretAccessKey, "aws-secret-access-key", "", "AWS IAM SecretAccessKey for the Liqo User")
 	flagset.StringVar(&opts.AWSConfig.AwsRegion, "aws-region", "", "AWS region where the local cluster is running")
