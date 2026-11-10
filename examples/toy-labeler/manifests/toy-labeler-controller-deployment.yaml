@@ -1,0 +1,116 @@
+---
+# ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: toy-labeler-controller
+  namespace: hub-spoke-demo
+
+---
+# ClusterRole for accessing EndpointSlices
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: toy-labeler-controller
+rules:
+- apiGroups: ["discovery.k8s.io"]
+  resources: ["endpointslices"]
+  verbs: ["get", "list", "watch", "patch", "update"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["get", "list"]
+
+---
+# ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: toy-labeler-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: toy-labeler-controller
+subjects:
+- kind: ServiceAccount
+  name: toy-labeler-controller
+  namespace: hub-spoke-demo
+
+---
+# Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: toy-labeler-controller
+  namespace: hub-spoke-demo
+  labels:
+    app: toy-labeler-controller
+    component: controller
+spec:
+  replicas: 1  # One instance per Provider cluster
+  selector:
+    matchLabels:
+      app: toy-labeler-controller
+  template:
+    metadata:
+      labels:
+        app: toy-labeler-controller
+        component: controller
+    spec:
+      serviceAccountName: toy-labeler-controller
+      
+      containers:
+      - name: controller
+        image: localhost:5000/toy-labeler-controller:latest
+        imagePullPolicy: Never
+        
+        # Environment variables for controller configuration
+        env:
+        - name: NAMESPACE
+          value: "hub-spoke-demo"
+        - name: TARGET_SERVICE
+          value: "demo-server"  # The service whose routing will be controlled
+        - name: LATENCY_THRESHOLD
+          value: "20"  # Percent - switch if difference > 20%
+        - name: MEASURE_INTERVAL
+          value: "30"  # Seconds - measure every 30 seconds
+        
+        # Resource limits
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+        
+        # Logging
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: false
+          runAsUser: 0
+          capabilities:
+            add:
+            - NET_RAW
+            - NET_ADMIN
+        
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      
+      # Restart policy
+      restartPolicy: Always
+      
+      # Pod disruption budget
+      tolerations:
+      - key: "node-role.kubernetes.io/master"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"

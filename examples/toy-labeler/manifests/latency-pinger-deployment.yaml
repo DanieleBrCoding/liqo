@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: latency-pinger
+  namespace: hub-spoke-demo
+spec:
+  replicas: 2  # Increase if more than 2 providers
+  selector:
+    matchLabels:
+      app: latency-pinger
+  template:
+    metadata:
+      labels:
+        app: latency-pinger
+    spec:
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app: latency-pinger
+      containers:
+      - name: netshoot
+        image: nicolaka/netshoot
+        command: ["sleep", "infinity"]

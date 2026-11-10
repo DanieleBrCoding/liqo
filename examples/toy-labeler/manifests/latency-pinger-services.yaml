@@ -1,0 +1,29 @@
+---
+# 1. Sonda Percorso Indiretto (via Hub)
+apiVersion: v1
+kind: Service
+metadata:
+  name: pinger-indirect-svc
+  namespace: hub-spoke-demo
+  # NESSUNA ANNOTAZIONE = Traffico Hub-and-Spoke 
+spec:
+  selector:
+    app: latency-pinger
+  ports:
+    - port: 80
+  type: ClusterIP
+---
+# 2. Sonda Percorso Diretto (P2P Mesh)
+apiVersion: v1
+kind: Service
+metadata:
+  name: pinger-direct-svc
+  namespace: hub-spoke-demo
+  annotations:
+    liqo.io/use-direct-connections: "true"  # Forza la creazione nativa del P2P
+spec:
+  selector:
+    app: latency-pinger
+  ports:
+    - port: 80
+  type: ClusterIP
