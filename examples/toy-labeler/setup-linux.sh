@@ -92,9 +92,29 @@ kc() { echo "$KC_DIR/liqo_kubeconf_$1"; }
 # Se l'utente e' nel gruppo docker ma la sessione corrente non lo sa ancora
 # (tipico subito dopo l'installazione), rilancia lo script dentro `sg docker`.
 docker_ok() { docker info >/dev/null 2>&1; }
+docker_daemon_up() { $SUDO docker info >/dev/null 2>&1; }
+
+# Avvia il daemon se spento (systemd oppure init/WSL senza systemd)
+start_docker_daemon() {
+  docker_daemon_up && return 0
+  info "Il daemon Docker non risponde: provo ad avviarlo..."
+  if [ "$(ps -p 1 -o comm= 2>/dev/null)" = "systemd" ]; then
+    $SUDO systemctl start docker 2>/dev/null || true
+  else
+    $SUDO service docker start >/dev/null 2>&1 || true
+    docker_daemon_up || { $SUDO nohup dockerd >/tmp/dockerd.log 2>&1 & }
+  fi
+  local i
+  for i in $(seq 1 20); do docker_daemon_up && return 0; sleep 1; done
+  return 1
+}
+
 ensure_docker_access() {
   has docker || return 0
   docker_ok && return 0
+  start_docker_daemon || return 0
+  docker_ok && return 0
+  # Daemon attivo ma la sessione non ha ancora il gruppo docker
   if [ -z "${SETUP_SG_DONE:-}" ] && id -nG "$USER" | tr ' ' '\n' | grep -qx docker && has sg; then
     info "Rilancio lo script con il gruppo 'docker' attivo..."
     SETUP_SG_DONE=1 exec sg docker -c "$(printf '%q ' "${BASH_SOURCE[0]}" "$@")"
@@ -184,7 +204,14 @@ check_prereqs() {
     has "$c" || { err "$c non trovato."; missing=1; }
   done
   [ "$missing" = 0 ] || die "Prerequisiti mancanti: riesegui lo script e accetta l'installazione."
-  docker_ok || die "Docker non raggiungibile (daemon spento o utente senza permessi: esegui 'newgrp docker' o rifai il login)."
+  if ! docker_ok; then
+    if ! docker_daemon_up; then
+      err "Il daemon Docker non parte."
+      [ "$(ps -p 1 -o comm= 2>/dev/null)" != "systemd" ] && err "Su WSL abilita systemd: in /etc/wsl.conf metti '[boot]' e 'systemd=true', poi 'wsl --shutdown' da PowerShell. Log: /tmp/dockerd.log"
+      die "Docker non disponibile."
+    fi
+    die "Il daemon Docker e' attivo ma l'utente non ha i permessi: esegui 'newgrp docker' (o rifai il login) e rilancia lo script."
+  fi
 }
 
 # ============================================================
@@ -421,7 +448,8 @@ step_controller_image() {
 # ============================================================
 CLUSTERS_FRESH=0
 ensure_docker_access "$@"
-step_utilities
+# Dopo il rilancio con 'sg docker' le utilities sono gia' state gestite
+[ -z "${SETUP_SG_DONE:-}" ] && step_utilities
 ensure_docker_access "$@"
 check_prereqs
 step_clusters
