@@ -14,7 +14,8 @@
 #   3. Builda le immagini Liqo dal branch locale e le carica nei cluster
 #   4. (opz.) Tunnel diretto provider1 <-> provider2
 #   5. Offloading del namespace e deploy del latency-pinger
-#   6. Builda e carica l'immagine del toy-labeler-controller nei provider
+#   6. Deploy del demo-server su provider2
+#   7. Builda e carica l'immagine del toy-labeler-controller nei provider
 #
 # Uso:  ./setup-linux.sh [--yes] [--direct-tunnel]
 #   --yes            risponde "si'" alle domande con default si' e non
@@ -321,13 +322,66 @@ require_clusters() {
 # ============================================================
 # 3. IMMAGINI LIQO DAL BRANCH LOCALE
 # ============================================================
+configure_virtual_kubelets() {
+  local image="$1" p actual template attempts
+  for p in "${PROVIDERS[@]}"; do
+    info "Aggiornamento VirtualNode $p -> $image..."
+    kubectl --kubeconfig "$(kc consumer)" -n "liqo-tenant-$p" patch virtualnode "$p" --type=json \
+      -p "$(printf '[{"op":"test","path":"/spec/template/spec/template/spec/containers/0/name","value":"virtual-kubelet"},{"op":"replace","path":"/spec/template/spec/template/spec/containers/0/image","value":"%s"}]' "$image")" \
+      || die "Patch VirtualNode $p fallita."
+
+    # Il controller Liqo aggiorna il deployment in modo asincrono.
+    actual=""
+    for ((attempts=0; attempts<90; attempts++)); do
+      actual="$(kubectl --kubeconfig "$(kc consumer)" -n "liqo-tenant-$p" \
+        get deployment "vk-$p" -o jsonpath='{.spec.template.spec.containers[?(@.name=="virtual-kubelet")].image}')" \
+        || die "Impossibile leggere il deployment vk-$p."
+      [ "$actual" = "$image" ] && break
+      sleep 2
+    done
+    [ "$actual" = "$image" ] || die "Il deployment vk-$p non e' stato aggiornato entro 180 secondi (immagine: $actual)."
+    kubectl --kubeconfig "$(kc consumer)" -n "liqo-tenant-$p" \
+      rollout status "deployment/vk-$p" --timeout=180s || die "Rollout vk-$p fallito."
+    template="$(kubectl --kubeconfig "$(kc consumer)" -n "liqo-tenant-$p" \
+      get virtualnode "$p" -o jsonpath='{.spec.template.spec.template.spec.containers[0].image}')" \
+      || die "Impossibile verificare il VirtualNode $p."
+    actual="$(kubectl --kubeconfig "$(kc consumer)" -n "liqo-tenant-$p" \
+      get deployment "vk-$p" -o jsonpath='{.spec.template.spec.containers[?(@.name=="virtual-kubelet")].image}')" \
+      || die "Impossibile verificare il deployment vk-$p."
+    [ "$template" = "$image" ] && [ "$actual" = "$image" ] \
+      || die "L'immagine di vk-$p non corrisponde al template richiesto."
+    ok "VirtualNode e deployment vk-$p usano $image."
+  done
+}
+
 step_local_images() {
   step "STEP 3: Build immagini Liqo dal branch locale"
   require_clusters || return 0
-  local def=n; [ "${CLUSTERS_FRESH:-0}" = 1 ] && def=y
-  ask "Buildare ${LOCAL_COMPONENTS[*]} dal branch locale, caricarle nei cluster e patcharle?" "$def" || { info "Saltato."; return 0; }
+  local def=n manager_image tag comp image c vk_image
+  [ "${CLUSTERS_FRESH:-0}" = 1 ] && def=y
+  if ! ask "Buildare ${LOCAL_COMPONENTS[*]} dal branch locale, caricarle nei cluster e patcharle?" "$def"; then
+    manager_image="$(kubectl --kubeconfig "$(kc consumer)" -n liqo get deployment liqo-controller-manager \
+      -o jsonpath='{.spec.template.spec.containers[?(@.name=="controller-manager")].image}')" \
+      || die "Impossibile determinare l'immagine del controller manager."
+    case "$manager_image" in
+      "ghcr.io/liqotech/liqo-controller-manager:${LIQO_VERSION}-local-"*)
+        tag="${manager_image##*:}"
+        vk_image="ghcr.io/liqotech/virtual-kubelet:${tag}"
+        if docker image inspect "$vk_image" >/dev/null 2>&1; then
+          if ask "Usare l'immagine locale esistente $vk_image nei VirtualNode senza ricompilarla?" y; then
+            kind load docker-image "$vk_image" --name consumer || die "Caricamento $vk_image nel consumer fallito."
+            configure_virtual_kubelets "$vk_image"
+          fi
+        else
+          warn "Immagine $vk_image non presente in Docker; ricompila per aggiornare i VirtualNode."
+        fi
+        ;;
+      *) warn "Nessuna build locale del controller manager rilevata; immagini VirtualNode non aggiornate." ;;
+    esac
+    return 0
+  fi
 
-  local tag="$LIQO_VERSION-local-$(date +%Y%m%d%H%M%S)" comp image c
+  tag="$LIQO_VERSION-local-$(date +%Y%m%d%H%M%S)"
   pushd "$ROOT" >/dev/null || die "Root repo non trovata."
   mkdir -p "bin/$ARCH"
   for comp in "${LOCAL_COMPONENTS[@]}"; do
@@ -339,7 +393,7 @@ step_local_images() {
     docker build --build-arg COMPONENT="$comp" --build-arg TARGETARCH="$ARCH" -t "$image" -f build/liqo/Dockerfile . \
       || { popd >/dev/null; die "Build immagine $comp fallita."; }
     for c in "${CLUSTERS[@]}"; do
-      kind load docker-image "$image" --name "$c" >/dev/null 2>&1 || warn "kind load $image su '$c' fallito."
+      kind load docker-image "$image" --name "$c" || die "Caricamento $image su '$c' fallito."
     done
     ok "$comp buildato e caricato."
   done
@@ -351,26 +405,12 @@ step_local_images() {
       controller-manager="ghcr.io/liqotech/liqo-controller-manager:${tag}" -n liqo || die "Patch fallita su '$c'."
   done
 
-  local p dep
-  for p in "${PROVIDERS[@]}"; do
-    dep="$(kubectl --kubeconfig "$(kc consumer)" get deployment -n "liqo-tenant-$p" -o name 2>/dev/null | grep "vk-$p" | head -n1)"
-    if [ -n "$dep" ]; then
-      info "Patch $dep (liqo-tenant-$p)..."
-      kubectl --kubeconfig "$(kc consumer)" set image "$dep" "virtual-kubelet=ghcr.io/liqotech/virtual-kubelet:${tag}" \
-        -n "liqo-tenant-$p" || die "Patch virtual-kubelet $p fallita."
-    else
-      warn "Deployment vk-$p non trovato sul consumer."
-    fi
-  done
-
   info "Attendo i rollout..."
   for c in "${CLUSTERS[@]}"; do
-    kubectl --kubeconfig "$(kc "$c")" rollout status deployment/liqo-controller-manager -n liqo --timeout=180s >/dev/null
+    kubectl --kubeconfig "$(kc "$c")" rollout status deployment/liqo-controller-manager -n liqo --timeout=180s \
+      || die "Rollout liqo-controller-manager fallito su '$c'."
   done
-  for p in "${PROVIDERS[@]}"; do
-    dep="$(kubectl --kubeconfig "$(kc consumer)" get deployment -n "liqo-tenant-$p" -o name 2>/dev/null | grep "vk-$p" | head -n1)"
-    [ -n "$dep" ] && kubectl --kubeconfig "$(kc consumer)" rollout status "$dep" -n "liqo-tenant-$p" --timeout=180s >/dev/null
-  done
+  configure_virtual_kubelets "ghcr.io/liqotech/virtual-kubelet:${tag}"
   ok "Immagini locali in uso (tag $tag)."
 }
 
@@ -393,23 +433,34 @@ step_direct_tunnel() {
 step_workload() {
   step "STEP 5: Offloading namespace '$NAMESPACE' + latency-pinger"
   require_clusters || return 0
-  local consumer; consumer="$(kc consumer)"
-
-  if kubectl --kubeconfig "$consumer" get deployment latency-pinger -n "$NAMESPACE" >/dev/null 2>&1; then
+  local consumer existing ns offloading
+  consumer="$(kc consumer)"
+  ns="$(kubectl --kubeconfig "$consumer" get namespace "$NAMESPACE" --ignore-not-found -o name)" \
+    || die "Impossibile verificare il namespace $NAMESPACE."
+  existing=""
+  if [ -n "$ns" ]; then
+    existing="$(kubectl --kubeconfig "$consumer" -n "$NAMESPACE" \
+      get deployment latency-pinger --ignore-not-found -o name)" \
+      || die "Impossibile verificare latency-pinger."
+  fi
+  if [ -n "$existing" ]; then
     ok "latency-pinger gia' deployato."
-    if ask "Vuoi ridepolyarlo da zero (cancella namespace '$NAMESPACE' e ricrea)?" n; then
-      kubectl --kubeconfig "$consumer" delete namespace "$NAMESPACE" --wait=true --timeout=180s || warn "Delete namespace non completata."
-    else
-      return 0
-    fi
+    ask "Aggiornare latency-pinger e i suoi Service senza cancellare il namespace?" n || return 0
   else
     ask "Creare il namespace '$NAMESPACE', offloadarlo sui provider e deployare il latency-pinger?" y || { info "Saltato."; return 0; }
   fi
 
-  kubectl --kubeconfig "$consumer" create namespace "$NAMESPACE" 2>/dev/null || true
-  liqoctl offload namespace "$NAMESPACE" --kubeconfig "$consumer" --namespace-mapping-strategy EnforceSameName \
-    || die "Offloading del namespace fallito."
-  info "Attendo propagazione del namespace (10s)..."; sleep 10
+  if [ -z "$ns" ]; then
+    kubectl --kubeconfig "$consumer" create namespace "$NAMESPACE" || die "Creazione namespace fallita."
+  fi
+  offloading="$(kubectl --kubeconfig "$consumer" -n "$NAMESPACE" \
+    get namespaceoffloading offloading --ignore-not-found -o name)" \
+    || die "Impossibile verificare l'offloading di $NAMESPACE."
+  if [ -z "$offloading" ]; then
+    liqoctl offload namespace "$NAMESPACE" --kubeconfig "$consumer" --namespace-mapping-strategy EnforceSameName \
+      || die "Offloading del namespace fallito."
+    info "Attendo propagazione del namespace (10s)..."; sleep 10
+  fi
 
   kubectl --kubeconfig "$consumer" -n "$NAMESPACE" apply -f "$MANIFESTS/latency-pinger-deployment.yaml" \
     && kubectl --kubeconfig "$consumer" -n "$NAMESPACE" apply -f "$MANIFESTS/latency-pinger-services.yaml" \
@@ -420,10 +471,84 @@ step_workload() {
 }
 
 # ============================================================
-# 6. IMMAGINE TOY-LABELER-CONTROLLER
+# 6. DEMO SERVER
+# ============================================================
+step_demo_server() {
+  step "STEP 6: demo-server su provider2"
+  require_clusters || return 0
+  local consumer existing
+  consumer="$(kc consumer)"
+  kubectl --kubeconfig "$consumer" -n "$NAMESPACE" get namespaceoffloading offloading >/dev/null \
+    || die "Namespace $NAMESPACE non offloadato: completa prima il passo 5."
+  existing="$(kubectl --kubeconfig "$consumer" -n "$NAMESPACE" \
+    get service/demo-server deployment/server-on-provider2 --ignore-not-found -o name)" \
+    || die "Impossibile verificare le risorse demo-server."
+  if [ -n "$existing" ]; then
+    info "Risorse demo-server gia' presenti: $existing"
+    ask "Aggiornare il Service e il Deployment demo-server senza cancellare il namespace?" n || return 0
+  else
+    ask "Creare demo-server sul consumer con un server NGINX su provider2?" y || return 0
+  fi
+
+  kubectl --kubeconfig "$consumer" apply -f - <<EOF || die "Creazione demo-server fallita."
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: server-on-provider2
+  namespace: $NAMESPACE
+  labels:
+    app: demo-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: demo-server
+  template:
+    metadata:
+      labels:
+        app: demo-server
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:stable-alpine
+          ports:
+            - containerPort: 80
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: liqo.io/remote-cluster-id
+                    operator: In
+                    values:
+                      - provider2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-server
+  namespace: $NAMESPACE
+  annotations:
+    liqo.io/use-direct-connections: "true"
+spec:
+  selector:
+    app: demo-server
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP
+  type: ClusterIP
+EOF
+  kubectl --kubeconfig "$consumer" -n "$NAMESPACE" \
+    rollout status deployment/server-on-provider2 --timeout=180s || die "Rollout demo-server fallito."
+  ok "demo-server creato; il Deployment e' pronto su provider2."
+}
+
+# ============================================================
+# 7. IMMAGINE TOY-LABELER-CONTROLLER
 # ============================================================
 step_controller_image() {
-  step "STEP 6: Immagine toy-labeler-controller"
+  step "STEP 7: Immagine toy-labeler-controller"
   require_clusters || return 0
   local present=1 p
   docker image inspect "$CONTROLLER_IMAGE" >/dev/null 2>&1 || present=0
@@ -456,6 +581,7 @@ step_clusters
 step_local_images
 step_direct_tunnel
 step_workload
+step_demo_server
 step_controller_image
 
 step "SETUP COMPLETATO"
@@ -468,6 +594,9 @@ Kubeconfig:
 Per avviare il controller su un provider (es. provider1):
   kubectl --kubeconfig $(kc provider1) apply -f $MANIFESTS/toy-labeler-controller-deployment.yaml
   kubectl --kubeconfig $(kc provider1) -n $NAMESPACE logs -f deployment/toy-labeler-controller
+
+Nota: la scelta automatica del percorso del controller richiede ulteriori
+correzioni; la creazione di demo-server non verifica lo switch.
 
 Cleanup dei cluster:
   kind delete cluster --name consumer; kind delete cluster --name provider1; kind delete cluster --name provider2
