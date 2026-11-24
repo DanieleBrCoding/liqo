@@ -4,16 +4,22 @@
 #   2. consumer : ascolto ICMP e HTTP sui gateway
 #   3. provider2: ascolto ICMP e HTTP sui gateway
 #   4. provider1: richieste HTTP al Service, in loop
-# Uso: ./demo-run-all.sh [--stop]
+# Uso: ./demo-run-all.sh [--http-only|--stop]
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/demo-lib.sh"
 
 SESSION="liqo-demo"
 
-if [ "${1:-}" = "--stop" ]; then
-  tmux kill-session -t "$SESSION" 2>/dev/null && ok "Sessione '$SESSION' chiusa." || info "Nessuna sessione attiva."
-  exit 0
-fi
+listen_option=""
+case "${1:-}:$#" in
+  :0) ;;
+  --http-only:1) listen_option=" --http-only" ;;
+  --stop:1)
+    tmux kill-session -t "$SESSION" 2>/dev/null && ok "Sessione '$SESSION' chiusa." || info "Nessuna sessione attiva."
+    exit 0
+    ;;
+  *) err "Uso: $0 [--http-only|--stop]"; exit 1 ;;
+esac
 
 if ! command -v tmux >/dev/null 2>&1; then
   warn "tmux non trovato."
@@ -27,7 +33,7 @@ fi
 for c in consumer provider1 provider2; do need_cluster "$c"; done
 
 if tmux has-session -t "$SESSION" 2>/dev/null; then
-  info "Sessione '$SESSION' gia' attiva; riaggancio."
+  info "Sessione '$SESSION' gia' attiva; riaggancio con il filtro precedente. Per cambiarlo, chiudi la sessione con --stop e riavviala."
   tmux attach -t "$SESSION"
   exit $?
 fi
@@ -37,8 +43,8 @@ export FORCE_COLOR=1
 P_CTRL="$(tmux new-session -d -s "$SESSION" -n demo -P -F '#{pane_id}' "./demo-controller.sh provider1 --restart")"
 tmux set-option -t "$SESSION" remain-on-exit on
 tmux set-option -t "$SESSION" pane-border-status top
-P_CONS="$(tmux split-window -h -t "$P_CTRL" -P -F '#{pane_id}' "./demo-listen.sh consumer")"
-P_PROV2="$(tmux split-window -v -t "$P_CTRL" -P -F '#{pane_id}' "./demo-listen.sh provider2")"
+P_CONS="$(tmux split-window -h -t "$P_CTRL" -P -F '#{pane_id}' "./demo-listen.sh consumer$listen_option")"
+P_PROV2="$(tmux split-window -v -t "$P_CTRL" -P -F '#{pane_id}' "./demo-listen.sh provider2$listen_option")"
 P_PING="$(tmux split-window -v -t "$P_CONS" -P -F '#{pane_id}' "./demo-ping.sh --loop")"
 tmux select-layout -t "$SESSION:demo" tiled
 

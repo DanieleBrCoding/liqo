@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
 # Osserva ICMP e TCP porta 80 sui gateway Liqo; correlare orari, IP e porte.
-# Uso: ./demo-listen.sh <consumer|provider1|provider2>
+# Uso: ./demo-listen.sh <consumer|provider1|provider2> [--http-only]
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/demo-lib.sh"
 
 CLUSTER="${1:-}"
-case "$CLUSTER" in
-  consumer|provider1|provider2) ;;
-  *) echo "Uso: $0 <consumer|provider1|provider2>"; exit 1 ;;
+case "$CLUSTER:${2:-}:$#" in
+  consumer::1|provider1::1|provider2::1) filter='icmp or tcp port 80'; traffic='ICMP e TCP porta 80' ;;
+  consumer:--http-only:2|provider1:--http-only:2|provider2:--http-only:2) filter='tcp port 80'; traffic='solo TCP porta 80' ;;
+  *) echo "Uso: $0 <consumer|provider1|provider2> [--http-only]" >&2; exit 1 ;;
 esac
 
 need_cluster "$CLUSTER"
 trap cleanup_sniff INT TERM EXIT
 
-echo "${C}=== $CLUSTER: ascolto ICMP e TCP porta 80 sui gateway Liqo ===${N}"
+echo "${C}=== $CLUSTER: ascolto $traffic sui gateway Liqo ===${N}"
 
 found=0
 has_direct=0
@@ -28,7 +29,7 @@ while read -r ns pod remote; do
     tag="gateway verso $remote"; color="$G"; has_direct=1
   fi
   info "$pod ($ns) -> $tag"
-  sniff_gateway "$CLUSTER" "$ns" "$pod" "$tag" "$color"
+  sniff_gateway "$CLUSTER" "$ns" "$pod" "$tag" "$color" "$filter"
 done < <(gateway_pods "$CLUSTER")
 
 if [ "$found" = 0 ]; then

@@ -51,11 +51,11 @@ cleanup_sniff() {
 }
 
 sniff_gateway() {
-  local cluster="$1" ns="$2" pod="$3" tag="$4" color="$5"
+  local cluster="$1" ns="$2" pod="$3" tag="$4" color="$5" filter="$6"
   (
     while true; do
       kc "$cluster" exec -n "$ns" "$pod" -c gateway -- \
-        timeout 30 tcpdump -nn -l -i any -Q in 'icmp or tcp port 80' \
+        timeout 30 tcpdump -nn -l -i any -Q in "$filter" \
         | while IFS= read -r line; do
             printf '%s %s[%s]%s %s\n' "$(date +%T)" "$color" "$tag" "$N" "$line"
           done
