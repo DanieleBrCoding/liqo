@@ -16,6 +16,9 @@ rules:
 - apiGroups: ["discovery.k8s.io"]
   resources: ["endpointslices"]
   verbs: ["get", "list", "watch", "patch", "update"]
+- apiGroups: ["offloading.liqo.io"]
+  resources: ["shadowendpointslices"]
+  verbs: ["get", "list"]
 - apiGroups: [""]
   resources: ["pods"]
   verbs: ["get", "list"]
@@ -72,6 +75,8 @@ spec:
           value: "hub-spoke-demo"
         - name: TARGET_SERVICE
           value: "demo-server"  # The service whose routing will be controlled
+        - name: TARGET_CLUSTER
+          value: "provider2"
         - name: LATENCY_THRESHOLD
           value: "20"  # Percent - switch if difference > 20%
         - name: MEASURE_INTERVAL
