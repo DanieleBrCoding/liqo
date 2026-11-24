@@ -39,31 +39,32 @@ gateway_pods() {
       done
 }
 
-SNIFF_CLUSTER=""
-SNIFF_TARGETS=()
+SNIFF_PIDS=()
 
-# Chiude i tcpdump rimasti nei pod e tutti i processi figli dello script
 cleanup_sniff() {
   trap - INT TERM EXIT
-  local t
-  for t in "${SNIFF_TARGETS[@]:-}"; do
-    [ -z "$t" ] && continue
-    kc "$SNIFF_CLUSTER" exec -n "${t%% *}" "${t##* }" -- pkill tcpdump >/dev/null 2>&1 || true
+  local pid
+  for pid in "${SNIFF_PIDS[@]}"; do
+    kill "$pid" 2>/dev/null || true
   done
-  kill 0 2>/dev/null || true
+  wait 2>/dev/null || true
 }
 
-# Avvia tcpdump (solo ICMP echo-request in ingresso) su un gateway e prefissa ogni riga con un'etichetta.
-# sniff_gateway <cluster> <namespace> <pod> <etichetta> <colore>
 sniff_gateway() {
   local cluster="$1" ns="$2" pod="$3" tag="$4" color="$5"
-  SNIFF_CLUSTER="$cluster"
-  SNIFF_TARGETS+=("$ns $pod")
   (
-    kc "$cluster" exec -n "$ns" "$pod" -- \
-      tcpdump -nn -l -i any -Q in 'icmp and icmp[icmptype]==icmp-echo' 2>/dev/null \
-      | while IFS= read -r line; do
-          printf '%s %s[%s]%s %s\n' "$(date +%T)" "$color" "$tag" "$N" "$line"
-        done
+    while true; do
+      kc "$cluster" exec -n "$ns" "$pod" -c gateway -- \
+        timeout 30 tcpdump -nn -l -i any -Q in 'icmp or tcp port 80' \
+        | while IFS= read -r line; do
+            printf '%s %s[%s]%s %s\n' "$(date +%T)" "$color" "$tag" "$N" "$line"
+          done
+      status=${PIPESTATUS[0]}
+      if [ "$status" -ne 0 ] && [ "$status" -ne 124 ]; then
+        err "Cattura su $cluster/$ns/$pod fallita (exit $status)."
+        exit "$status"
+      fi
+    done
   ) &
+  SNIFF_PIDS+=("$!")
 }

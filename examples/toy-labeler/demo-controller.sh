@@ -28,10 +28,13 @@ kc "$CLUSTER" get namespace "$NS" >/dev/null 2>&1 \
 
 info "Avvio del controller su $CLUSTER..."
 kc "$CLUSTER" apply -f "$CONTROLLER_MANIFEST" >/dev/null || { err "Apply del manifest fallito."; exit 1; }
-[ "$ACTION" = "restart" ] && kc "$CLUSTER" -n "$NS" rollout restart deployment/toy-labeler-controller >/dev/null
+if [ "$ACTION" = "restart" ]; then
+  kc "$CLUSTER" -n "$NS" rollout restart deployment/toy-labeler-controller >/dev/null \
+    || { err "Riavvio del controller fallito."; exit 1; }
+fi
 
 if ! kc "$CLUSTER" -n "$NS" rollout status deployment/toy-labeler-controller --timeout=120s; then
-  err "Il controller non e' partito. Se vedi ErrImageNeverPull, l'immagine non e' caricata nel cluster (passo 6 di ./setup-linux.sh)."
+  err "Il controller non e' partito. Se vedi ErrImageNeverPull, l'immagine non e' caricata nel cluster (passo 7 di ./setup-linux.sh)."
   kc "$CLUSTER" -n "$NS" get pods -l app=toy-labeler-controller
   exit 1
 fi

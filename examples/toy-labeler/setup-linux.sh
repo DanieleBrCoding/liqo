@@ -563,7 +563,7 @@ step_controller_image() {
       || die "Build del controller fallita."
   fi
   for p in "${PROVIDERS[@]}"; do
-    kind load docker-image "$CONTROLLER_IMAGE" --name "$p" >/dev/null 2>&1 || warn "kind load su '$p' fallito."
+    kind load docker-image "$CONTROLLER_IMAGE" --name "$p" || die "Caricamento immagine controller su '$p' fallito."
   done
   ok "Immagine controller caricata su ${PROVIDERS[*]}."
 }
@@ -595,8 +595,8 @@ Per avviare il controller su un provider (es. provider1):
   kubectl --kubeconfig $(kc provider1) apply -f $MANIFESTS/toy-labeler-controller-deployment.yaml
   kubectl --kubeconfig $(kc provider1) -n $NAMESPACE logs -f deployment/toy-labeler-controller
 
-Nota: la scelta automatica del percorso del controller richiede ulteriori
-correzioni; la creazione di demo-server non verifica lo switch.
+Se il controller era gia' in esecuzione prima della build dell'immagine:
+  kubectl --kubeconfig $(kc provider1) -n $NAMESPACE rollout restart deployment/toy-labeler-controller
 
 Cleanup dei cluster:
   kind delete cluster --name consumer; kind delete cluster --name provider1; kind delete cluster --name provider2

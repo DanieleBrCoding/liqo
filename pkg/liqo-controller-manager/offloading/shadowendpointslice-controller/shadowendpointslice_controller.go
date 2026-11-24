@@ -177,7 +177,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		// failover mode, immediately inject kubernetes.io/service-name so kube-proxy uses
 		// it from the very first moment without a flip-flop reconcile cycle.
 		if isIndirect {
-			if svcName, svcErr := r.getDirectServiceNameForFailover(ctx, shadowEps.Name, nsName.Namespace); svcErr == nil && svcName != "" {
+			svcName, svcErr := r.getDirectServiceNameForFailover(ctx, shadowEps.Name, nsName.Namespace)
+			if svcErr != nil {
+				return ctrl.Result{}, fmt.Errorf("unable to determine indirect endpoint service: %w", svcErr)
+			}
+			if svcName != "" {
 				newEps.Labels[discoveryv1.LabelServiceName] = svcName
 			}
 		}
@@ -208,13 +212,17 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		//
 		// Endpoint addresses and readiness conditions are still updated normally in both cases.
 		if isDirect {
-			if existingEps.Annotations[consts.DirectConnectionFailoverAnnotation] == "true" {
+			if useIndirectPath(existingEps.Annotations) {
 				klog.V(4).Infof("endpointslice %q is in failover mode, suppressing %q label",
 					klog.KObj(&existingEps), discoveryv1.LabelServiceName)
 				delete(newEps.Labels, discoveryv1.LabelServiceName)
 			}
 		} else if isIndirect {
-			if svcName, svcErr := r.getDirectServiceNameForFailover(ctx, shadowEps.Name, nsName.Namespace); svcErr == nil && svcName != "" {
+			svcName, svcErr := r.getDirectServiceNameForFailover(ctx, shadowEps.Name, nsName.Namespace)
+			if svcErr != nil {
+				return ctrl.Result{}, fmt.Errorf("unable to determine indirect endpoint service: %w", svcErr)
+			}
+			if svcName != "" {
 				klog.V(4).Infof("endpointslice %q: companion direct EPS is in failover mode, injecting %q label",
 					klog.KObj(&existingEps), discoveryv1.LabelServiceName)
 				newEps.Labels[discoveryv1.LabelServiceName] = svcName
@@ -315,7 +323,7 @@ func (r *Reconciler) getDirectServiceNameForFailover(ctx context.Context, indire
 		return "", err
 	}
 
-	if directEPS.Annotations[consts.DirectConnectionFailoverAnnotation] != "true" {
+	if !useIndirectPath(directEPS.Annotations) {
 		return "", nil
 	}
 
@@ -330,6 +338,11 @@ func (r *Reconciler) getDirectServiceNameForFailover(ctx context.Context, indire
 	}
 
 	return directShadow.Labels[discoveryv1.LabelServiceName], nil
+}
+
+func useIndirectPath(annotations map[string]string) bool {
+	return annotations[consts.DirectConnectionFailoverAnnotation] == "true" ||
+		annotations[consts.LatencyPreferIndirectAnnotation] == "true"
 }
 
 // getDirectEPSFailoverHandler returns an event handler that enqueues the companion indirect
@@ -370,7 +383,9 @@ func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager, wor
 			}
 			oldA := e.ObjectOld.GetAnnotations()[consts.DirectConnectionFailoverAnnotation]
 			newA := e.ObjectNew.GetAnnotations()[consts.DirectConnectionFailoverAnnotation]
-			return oldA != newA
+			return oldA != newA ||
+				e.ObjectOld.GetAnnotations()[consts.LatencyPreferIndirectAnnotation] !=
+					e.ObjectNew.GetAnnotations()[consts.LatencyPreferIndirectAnnotation]
 		},
 		CreateFunc:  func(_ event.CreateEvent) bool { return false },
 		DeleteFunc:  func(_ event.DeleteEvent) bool { return false },

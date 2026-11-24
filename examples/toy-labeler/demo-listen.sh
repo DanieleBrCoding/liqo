@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Resta in ascolto dei ping (ICMP echo-request) che attraversano i gateway Liqo di un cluster
-# e indica se il traffico passa dal consumer (hub, percorso indiretto) o dal tunnel diretto.
+# Osserva ICMP e TCP porta 80 sui gateway Liqo; correlare orari, IP e porte.
 # Uso: ./demo-listen.sh <consumer|provider1|provider2>
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/demo-lib.sh"
@@ -14,7 +13,7 @@ esac
 need_cluster "$CLUSTER"
 trap cleanup_sniff INT TERM EXIT
 
-echo "${C}=== $CLUSTER: ascolto ICMP sui gateway Liqo ===${N}"
+echo "${C}=== $CLUSTER: ascolto ICMP e TCP porta 80 sui gateway Liqo ===${N}"
 
 found=0
 has_direct=0
@@ -22,11 +21,11 @@ while read -r ns pod remote; do
   [ -z "${pod:-}" ] && continue
   found=1
   if [ "$CLUSTER" = "consumer" ]; then
-    tag="HUB: il traffico passa dal CONSUMER (gw verso $remote)"; color="$Y"
+    tag="CONSUMER: gw verso $remote"; color="$Y"
   elif [ "$remote" = "consumer" ]; then
-    tag="INDIRETTO via CONSUMER (gw verso consumer)"; color="$Y"
+    tag="gateway verso consumer"; color="$Y"
   else
-    tag="DIRETTO (gw verso $remote)"; color="$G"; has_direct=1
+    tag="gateway verso $remote"; color="$G"; has_direct=1
   fi
   info "$pod ($ns) -> $tag"
   sniff_gateway "$CLUSTER" "$ns" "$pod" "$tag" "$color"
@@ -40,5 +39,5 @@ if [ "$CLUSTER" != "consumer" ] && [ "$has_direct" = 0 ]; then
   warn "Nessun gateway verso l'altro provider: il tunnel diretto non c'e' (passo 4 di ./setup-linux.sh, --direct-tunnel)."
 fi
 
-echo "${C}In attesa di pacchetti... (Ctrl+C per uscire)${N}"
+echo "${C}Correla i pacchetti alle richieste HTTP tramite orario, IP e porta (Ctrl+C per uscire).${N}"
 wait

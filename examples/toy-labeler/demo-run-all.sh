@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Lancia l'intera demo in una sessione tmux a 4 pannelli:
 #   1. provider1: controller in esecuzione (log)
-#   2. consumer : ascolto ICMP sui gateway (hub)
-#   3. provider2: ascolto ICMP sui gateway (hub vs diretto)
-#   4. provider1: ping verso i due percorsi, in loop
+#   2. consumer : ascolto ICMP e HTTP sui gateway
+#   3. provider2: ascolto ICMP e HTTP sui gateway
+#   4. provider1: richieste HTTP al Service, in loop
 # Uso: ./demo-run-all.sh [--stop]
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/demo-lib.sh"
@@ -26,11 +26,15 @@ fi
 
 for c in consumer provider1 provider2; do need_cluster "$c"; done
 
-tmux kill-session -t "$SESSION" 2>/dev/null
+if tmux has-session -t "$SESSION" 2>/dev/null; then
+  info "Sessione '$SESSION' gia' attiva; riaggancio."
+  tmux attach -t "$SESSION"
+  exit $?
+fi
 cd "$HERE" || exit 1
 export FORCE_COLOR=1
 
-P_CTRL="$(tmux new-session -d -s "$SESSION" -n demo -P -F '#{pane_id}' "./demo-controller.sh provider1")"
+P_CTRL="$(tmux new-session -d -s "$SESSION" -n demo -P -F '#{pane_id}' "./demo-controller.sh provider1 --restart")"
 tmux set-option -t "$SESSION" remain-on-exit on
 tmux set-option -t "$SESSION" pane-border-status top
 P_CONS="$(tmux split-window -h -t "$P_CTRL" -P -F '#{pane_id}' "./demo-listen.sh consumer")"
@@ -41,7 +45,7 @@ tmux select-layout -t "$SESSION:demo" tiled
 tmux select-pane -t "$P_CTRL" -T "provider1: CONTROLLER (log)"
 tmux select-pane -t "$P_CONS" -T "consumer: ascolto (hub)"
 tmux select-pane -t "$P_PROV2" -T "provider2: ascolto (hub vs diretto)"
-tmux select-pane -t "$P_PING" -T "provider1: PING"
+tmux select-pane -t "$P_PING" -T "provider1: HTTP demo-server"
 
 info "Sessione tmux '$SESSION' avviata. Per uscire dal vista: Ctrl+B poi D. Per chiudere tutto: ./demo-run-all.sh --stop"
 tmux attach -t "$SESSION"

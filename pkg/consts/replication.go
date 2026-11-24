@@ -113,4 +113,7 @@ const (
 	// present the ShadowEndpointSlice controller skips reconciliation for that EPS, preserving the
 	// hub-and-spoke (indirect) addresses that the failover controller has patched in.
 	DirectConnectionFailoverAnnotation = "liqo.io/direct-connection-failover"
+
+	// LatencyPreferIndirectAnnotation requests the indirect endpoint independently of network failover.
+	LatencyPreferIndirectAnnotation = "liqo.io/latency-prefer-indirect"
 )
