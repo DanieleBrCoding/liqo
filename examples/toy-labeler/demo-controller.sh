@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Avvia (o ferma) il toy-labeler-controller su un provider e ne mostra i log.
+# Se lo stream si chiude, si riconnette e ristampa fino a 10 righe recenti.
 # Uso: ./demo-controller.sh [provider1|provider2] [--restart|--stop]
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/demo-lib.sh"
@@ -39,5 +40,21 @@ if ! kc "$CLUSTER" -n "$NS" rollout status deployment/toy-labeler-controller --t
   exit 1
 fi
 
+follow_controller_logs() {
+  local status
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  while true; do
+    kc "$CLUSTER" -n "$NS" logs -f deployment/toy-labeler-controller -c controller --tail=10
+    status=$?
+    if [ "$status" -eq 0 ]; then
+      warn "Stream dei log chiuso; riconnessione tra 5 secondi."
+    else
+      err "Stream dei log interrotto (codice $status); riconnessione tra 5 secondi."
+    fi
+    sleep 5
+  done
+}
+
 ok "Controller attivo su $CLUSTER. Log in tempo reale (Ctrl+C per uscire, il controller resta attivo):"
-kc "$CLUSTER" -n "$NS" logs -f deployment/toy-labeler-controller
+follow_controller_logs
